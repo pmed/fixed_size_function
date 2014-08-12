@@ -1,0 +1,13 @@
+# VC++ files
+Debug/
+Release/
+*.suo
+*.vcproj
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+UpgradeLog*.XML
+_UpgradeReport_Files/
+ipch/
+*.sdf
+*.opensdf

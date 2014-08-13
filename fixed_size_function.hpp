@@ -6,13 +6,27 @@
 #include <tuple>
 #include <type_traits>
 
-template<typename Signature, size_t MaxSize>
+enum class construct_type {
+	none,
+	copy,
+	move,
+	copy_and_move,
+};
+
+template<typename Function, size_t MaxSize, construct_type ConstructStrategy = construct_type::copy_and_move>
 class fixed_size_function;
 
-template<typename Ret, typename ...Args, size_t MaxSize>
-class fixed_size_function<Ret (Args...), MaxSize>
+template<typename Ret, typename ...Args, size_t MaxSize, construct_type ConstructStrategy>
+class fixed_size_function<Ret (Args...), MaxSize, ConstructStrategy>
 {
 public:
+// Compile-time information
+
+	using is_copyable = std::integral_constant<bool, ConstructStrategy == construct_type::copy
+		|| ConstructStrategy == construct_type::copy_and_move>;
+	using is_movable = std::integral_constant<bool, ConstructStrategy == construct_type::move
+		|| ConstructStrategy == construct_type::copy_and_move>;
+
 	using result_type = Ret;
 
 	static const std::size_t arity = sizeof...(Args);
@@ -24,23 +38,25 @@ public:
 		using type = typename std::tuple_element<N, std::tuple<Args...>>::type;
 	};
 
-	fixed_size_function()
-		: call_(nullptr)
-		, destroy_(nullptr)
-		, copy_(nullptr)
-		, move_(nullptr)
-	{
-	}
+public:
+	template<typename F, size_t S, construct_type C> fixed_size_function(fixed_size_function<F, S, C> const&) = delete;
+	template<typename F, size_t S, construct_type C> fixed_size_function(fixed_size_function<F, S, C>&) = delete;
+	template<typename F, size_t S, construct_type C> fixed_size_function(fixed_size_function<F, S, C>&&) = delete;
+	template<typename F, size_t S, construct_type C> fixed_size_function& operator=(fixed_size_function<F, S, C> const&) = delete;
+	template<typename F, size_t S, construct_type C> fixed_size_function& operator=(fixed_size_function<F, S, C>&) = delete;
+	template<typename F, size_t S, construct_type C> fixed_size_function& operator=(fixed_size_function<F, S, C>&&) = delete;
+	template<typename F, size_t S, construct_type C> void assign(fixed_size_function<F, S, C> const&) = delete;
+	template<typename F, size_t S, construct_type C> void assign(fixed_size_function<F, S, C>&) = delete;
+	template<typename F, size_t S, construct_type C> void assign(fixed_size_function<F, S, C>&&) = delete;
 
-	fixed_size_function(std::nullptr_t)
-		: fixed_size_function()
-	{
-	}
+	fixed_size_function() {}
 
 	~fixed_size_function()
 	{
 		reset();
 	}
+
+	fixed_size_function(std::nullptr_t) {}
 
 	fixed_size_function& operator=(std::nullptr_t)
 	{
@@ -72,12 +88,12 @@ public:
 
 	fixed_size_function(fixed_size_function&& src)
 	{
-		move(std::forward<fixed_size_function>(src));
+		move(std::move(src), is_movable());
 	}
 
 	fixed_size_function& operator=(fixed_size_function&& src)
 	{
-		assign(std::forward<fixed_size_function>(src));
+		assign(std::move(src));
 		return *this;
 	}
 
@@ -109,7 +125,7 @@ public:
 	void assign(fixed_size_function&& src)
 	{
 		reset();
-		move(std::forward<fixed_size_function>(src));
+		move(std::move(src), is_movable());
 	}
 
 	template<typename Functor>
@@ -121,32 +137,26 @@ public:
 
 	void reset()
 	{
-		if (destroy_)
+		auto destroy = vtable_.destroy;
+		if (destroy)
 		{
-			destroy_(&storage_);
-			call_ = nullptr;
-			copy_ = nullptr;
-			move_ = nullptr;
-			destroy_ = nullptr;
+			vtable_ = vtable();
+			destroy(&storage_);
 		}
 	}
 
-	explicit operator bool() const { return call_ != nullptr; }
+	explicit operator bool() const { return vtable_.call != nullptr; }
 
 	Ret operator()(Args&& ... args)
 	{
-		return call_ ? call_(&storage_, std::forward<Args>(args)...) : throw std::bad_function_call();
+		return vtable_.call ? vtable_.call(&storage_, std::forward<Args>(args)...) : throw std::bad_function_call();
 	}
 
 	void swap(fixed_size_function& other)
 	{
-		using std::swap;
-
-		swap(call_, other.call_);
-		swap(copy_, other.copy_);
-		swap(move_, other.move_);
-		swap(destroy_, other.destroy_);
-		swap(storage_, other.storage_);
+		fixed_size_function tmp = std::move(other);
+		other = std::move(*this);
+		*this = std::move(tmp);
 	}
 
 	friend void swap(fixed_size_function& lhs, fixed_size_function& rhs)
@@ -175,44 +185,82 @@ public:
 	}
 
 private:
+// V-table implementation
+
+	struct fixed_function_vtable_base
+	{
+		Ret  (*call)(void*, Args&& ...) = nullptr;
+		void (*destroy)(void*) = nullptr;
+	};
+
+	template<construct_type ConstructStrategy>
+	struct fixed_function_vtable;
+
+	template<>
+	struct fixed_function_vtable<construct_type::none>
+		: fixed_function_vtable_base
+	{
+	};
+
+	template<>
+	struct fixed_function_vtable<construct_type::copy>
+		: fixed_function_vtable_base
+	{
+		void (*copy)(const void*, void*) = nullptr;
+	};
+
+	template<>
+	struct fixed_function_vtable<construct_type::move>
+		: fixed_function_vtable_base
+	{
+		void (*move)(void*, void*) = nullptr;
+	};
+
+	template<>
+	struct fixed_function_vtable<construct_type::copy_and_move>
+		: fixed_function_vtable_base
+	{
+		void (*copy)(const void*, void*) = nullptr;
+		void (*move)(void*, void*) = nullptr;
+	};
+
+private:
 	template<typename Functor>
 	void create(Functor&& f)
 	{
-		typedef typename std::decay<Functor>::type functor_type;
+		using functor_type = typename std::decay<Functor>::type;
 		static_assert(sizeof(functor_type) <= MaxSize, "Functor must be smaller than storage buffer");
 
 		new (&storage_) functor_type(std::forward<Functor>(f));
 
-		call_ = &call_impl<functor_type>;
-		destroy_ = &destroy_impl<functor_type>;
-		copy_ = &copy_impl<functor_type>;
-		move_ = &move_impl<functor_type>;
+		vtable_.call = &call_impl<functor_type>;
+		vtable_.destroy = &destroy_impl<functor_type>;
+		init_copy<functor_type>(is_copyable());
+		init_move<functor_type>(is_movable());
 	}
 
 	void copy(fixed_size_function const& src)
 	{
-		if (src.copy_)
+		if (src.vtable_.copy)
 		{
-			src.copy_(&src.storage_, &storage_);
-
-			call_ = src.call_;
-			copy_ = src.copy_;
-			move_ = src.move_;
-			destroy_ = src.destroy_;
+			src.vtable_.copy(&src.storage_, &storage_);
+			vtable_ = src.vtable_;
 		}
 	}
 
-	void move(fixed_size_function&& src)
+	void move(fixed_size_function&& src, std::true_type movable)
 	{
-		if (src.move_)
+		if (src.vtable_.move)
 		{
-			src.move_(&src.storage_, &storage_);
-
-			call_ = src.call_; src.call_ = nullptr;
-			copy_ = src.copy_; src.copy_ = nullptr;
-			move_ = src.move_; src.move_ = nullptr;
-			destroy_ = src.destroy_; src.destroy_ = nullptr;
+			src.vtable_.move(&src.storage_, &storage_);
+			vtable_ = src.vtable_;
+			src.reset();
 		}
+	}
+
+	void move(fixed_size_function const& src, std::false_type movable)
+	{
+		copy(src);
 	}
 
 private:
@@ -240,12 +288,24 @@ private:
 		new (dest) Functor(std::move(*static_cast<Functor*>(functor)));
 	}
 
-	Ret  (*call_)(void* functor, Args&& ... args);
-	void (*destroy_)(void* functor);
-	void (*copy_)(void const* functor, void* dest);
-	void (*move_)(void* functor, void* dest);
+	template<typename Functor>
+	void init_copy(std::true_type copyable) { vtable_.copy = &copy_impl<Functor>; }
 
-	typename std::aligned_storage<MaxSize>::type storage_;
+	template<typename Functor>
+	void init_copy_(std::false_type copyable) {}
+
+	template<typename Functor>
+	void init_move(std::true_type movable) { vtable_.move = &move_impl<Functor>; }
+
+	template<typename Functor>
+	void init_move(std::false_type movable) {}
+
+private:
+	using vtable = fixed_function_vtable<ConstructStrategy>;
+	using storage = typename std::aligned_storage<MaxSize>::type;
+
+	vtable vtable_;
+	storage storage_;
 };
 
 #endif // FIXED_SIZE_FUNCTION_HPP_INCLUDED

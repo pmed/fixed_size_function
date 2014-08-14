@@ -4,13 +4,13 @@
 
 int f(int a)
 {
-	std::cout << __FUNCTION__ << "\n";
-	return a; 
+	std::cout << a << ' ' << __FUNCTION__ << '\n';
+	return a;
 }
 
 int g(int a, int b)
 {
-	std::cout << __FUNCTION__ << "\n";
+	std::cout << a << ' ' << __FUNCTION__ << '\n';
 	return a;
 }
 
@@ -50,13 +50,13 @@ struct X
 
 	int operator()(int a) const
 	{
-		std::cout << __FUNCTION__ << "\n";
+		std::cout << a << ' ' << __FUNCTION__ << '\n';
 		return a;
 	}
 
 	int mem_fun(int a)
 	{
-		std::cout << __FUNCTION__ << "\n";
+		std::cout << a << ' ' << __FUNCTION__ << '\n';
 		return a;
 	}
 };
@@ -65,24 +65,26 @@ struct X
 
 int main()
 {
+	using function = fixed_size_function<int(int), 256>;
+
 	X x;
 
 	// Default ctor
-	fixed_size_function<int(int), 256> fun0;
+	function fun0;
 	ensure(!fun0);
 
 	// Template ctors
-	fixed_size_function<int(int), 256> fun(x), fun2(f);
+	function fun(x), fun2(f);
 	ensure(fun(1) == 1);
 	ensure(fun2(2) == 2);
 
 	// Copy ctor
-	fixed_size_function<int(int), 256> fun3(fun);
-	ensure(fun3(2) == 2);
+	function fun3(fun);
+	ensure(fun3(3) == 3);
 
 	// Move
-	fun2 = std::move(fun);
-	ensure(fun2(3) == 3);
+	fun2 = std::move(fun3);
+	ensure(fun2(4) == 4);
 	ensure(!fun);
 
 	// Assign function
@@ -95,23 +97,23 @@ int main()
 
 	// Assign free function
 	fun = f;
-	ensure(fun(4) == 4);
+	ensure(fun(5) == 5);
 
 	// Bind free function
 	fun = std::bind(g, std::placeholders::_1, 0);
-	ensure(fun(5) == 5);
+	ensure(fun(6) == 6);
 
 	// Bind member function
 	fun = std::bind(&X::mem_fun, x, std::placeholders::_1);
-	ensure(fun(6) == 6);
+	ensure(fun(7) == 7);
 
 	// Lambda
 	fun = [](int a) -> int
 	{
-		std::cout << __FUNCTION__ << "\n";
+		std::cout << a << ' ' << __FUNCTION__ << '\n';
 		return a;
 	};
-	ensure(fun(7) == 7);
+	ensure(fun(8) == 8);
 
 	// Reset
 	fun = nullptr;

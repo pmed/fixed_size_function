@@ -13,6 +13,49 @@ enum class construct_type {
 	copy_and_move,
 };
 
+namespace details {
+
+// V-table implementation
+template<typename Ret, typename ...Args>
+struct fixed_function_vtable_base
+{
+    Ret  (*call)(void*, Args&& ...) = nullptr;
+    void (*destroy)(void*) = nullptr;
+};
+
+template<construct_type ConstructStrategy, typename Ret, typename ...Args>
+struct fixed_function_vtable;
+
+template<typename Ret, typename ...Args>
+struct fixed_function_vtable<construct_type::none, Ret, Args...>
+        : fixed_function_vtable_base<Ret, Args...>
+{
+};
+
+template<typename Ret, typename ...Args>
+struct fixed_function_vtable<construct_type::copy, Ret, Args...>
+        : fixed_function_vtable_base<Ret, Args...>
+{
+    void (*copy)(const void*, void*) = nullptr;
+};
+
+template<typename Ret, typename ...Args>
+struct fixed_function_vtable<construct_type::move, Ret, Args...>
+        : fixed_function_vtable_base<Ret, Args...>
+{
+    void (*move)(void*, void*) = nullptr;
+};
+
+template<typename Ret, typename ...Args>
+struct fixed_function_vtable<construct_type::copy_and_move, Ret, Args...>
+        : fixed_function_vtable_base<Ret, Args...>
+{
+    void (*copy)(const void*, void*) = nullptr;
+    void (*move)(void*, void*) = nullptr;
+};
+
+} // namespace details
+
 template<typename Function, size_t MaxSize, construct_type ConstructStrategy = construct_type::copy_and_move>
 class fixed_size_function;
 
@@ -185,46 +228,6 @@ public:
 	}
 
 private:
-// V-table implementation
-
-	struct fixed_function_vtable_base
-	{
-		Ret  (*call)(void*, Args&& ...) = nullptr;
-		void (*destroy)(void*) = nullptr;
-	};
-
-	template<construct_type ConstructStrategy>
-	struct fixed_function_vtable;
-
-	template<>
-	struct fixed_function_vtable<construct_type::none>
-		: fixed_function_vtable_base
-	{
-	};
-
-	template<>
-	struct fixed_function_vtable<construct_type::copy>
-		: fixed_function_vtable_base
-	{
-		void (*copy)(const void*, void*) = nullptr;
-	};
-
-	template<>
-	struct fixed_function_vtable<construct_type::move>
-		: fixed_function_vtable_base
-	{
-		void (*move)(void*, void*) = nullptr;
-	};
-
-	template<>
-	struct fixed_function_vtable<construct_type::copy_and_move>
-		: fixed_function_vtable_base
-	{
-		void (*copy)(const void*, void*) = nullptr;
-		void (*move)(void*, void*) = nullptr;
-	};
-
-private:
 	template<typename Functor>
 	void create(Functor&& f)
 	{
@@ -301,7 +304,7 @@ private:
 	void init_move(std::false_type movable) {}
 
 private:
-	using vtable = fixed_function_vtable<ConstructStrategy>;
+	using vtable = details::fixed_function_vtable<ConstructStrategy, Ret, Args...>;
 	using storage = typename std::aligned_storage<MaxSize>::type;
 
 	vtable vtable_;

@@ -83,12 +83,14 @@ int main()
 	ensure(fun3(3) == 3);
 
 	// Move
-	fun2 = std::move(fun3);
+	fun2 = std::move(fun);
 	ensure(fun2(4) == 4);
 	ensure(!fun);
 
 	// Assign function
 	fun = fun2;
+	ensure(fun);
+	ensure(fun2);
 
 	// Swap
 	fun.reset();

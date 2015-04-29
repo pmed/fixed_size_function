@@ -295,7 +295,7 @@ private:
 	void init_copy(std::true_type copyable) { vtable_.copy = &copy_impl<Functor>; }
 
 	template<typename Functor>
-	void init_copy_(std::false_type copyable) {}
+	void init_copy(std::false_type copyable) {}
 
 	template<typename Functor>
 	void init_move(std::true_type movable) { vtable_.move = &move_impl<Functor>; }

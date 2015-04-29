@@ -1,7 +1,7 @@
 Fixed size function
 ===================
 
-Fixed size function wrapper like [std::function](http://en.cppreference.com/w/cpp/utility/functional/function)
+Fixed size function wrapper like [std::function](http://en.cppreference.com/w/cpp/utility/functional/function) to avoid dynamic memory allocation.
 
 Usage:
 

@@ -56,7 +56,7 @@ struct fixed_function_vtable<construct_type::copy_and_move, Ret, Args...>
 
 } // namespace details
 
-template<typename Function, size_t MaxSize, construct_type ConstructStrategy = construct_type::copy_and_move>
+template<typename Function, size_t MaxSize = 128, construct_type ConstructStrategy = construct_type::copy_and_move>
 class fixed_size_function;
 
 template<typename Ret, typename ...Args, size_t MaxSize, construct_type ConstructStrategy>
@@ -190,7 +190,7 @@ public:
 
 	explicit operator bool() const { return vtable_.call != nullptr; }
 
-	Ret operator()(Args&& ... args)
+	Ret operator()(Args... args)
 	{
 		return vtable_.call ? vtable_.call(&storage_, std::forward<Args>(args)...) : throw std::bad_function_call();
 	}
@@ -232,7 +232,7 @@ private:
 	void create(Functor&& f)
 	{
 		using functor_type = typename std::decay<Functor>::type;
-		static_assert(sizeof(functor_type) <= MaxSize, "Functor must be smaller than storage buffer");
+		static_assert(sizeof(functor_type) <= StorageSize, "Functor must be smaller than storage buffer");
 
 		new (&storage_) functor_type(std::forward<Functor>(f));
 
@@ -292,20 +292,21 @@ private:
 	}
 
 	template<typename Functor>
-	void init_copy(std::true_type copyable) { vtable_.copy = &copy_impl<Functor>; }
+	void init_copy(std::true_type /*copyable*/) { vtable_.copy = &copy_impl<Functor>; }
 
 	template<typename Functor>
-	void init_copy(std::false_type copyable) {}
+	void init_copy(std::false_type /*copyable*/) {}
 
 	template<typename Functor>
-	void init_move(std::true_type movable) { vtable_.move = &move_impl<Functor>; }
+	void init_move(std::true_type /*movable*/) { vtable_.move = &move_impl<Functor>; }
 
 	template<typename Functor>
-	void init_move(std::false_type movable) {}
+	void init_move(std::false_type /*movable*/) {}
 
 private:
 	using vtable = details::fixed_function_vtable<ConstructStrategy, Ret, Args...>;
-	using storage = typename std::aligned_storage<MaxSize>::type;
+	static const size_t StorageSize = MaxSize - sizeof(vtable);
+	using storage = typename std::aligned_storage<StorageSize>::type;
 
 	vtable vtable_;
 	storage storage_;

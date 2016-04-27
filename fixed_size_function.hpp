@@ -1,3 +1,9 @@
+//
+// Copyright (c) 2014-2016 Pavel Medvedev. All rights reserved.
+//
+// Distributed under the MIT software license, see the accompanying
+// file LICENSE
+
 #ifndef FIXED_SIZE_FUNCTION_HPP_INCLUDED
 #define FIXED_SIZE_FUNCTION_HPP_INCLUDED
 
